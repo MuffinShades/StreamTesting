@@ -55,12 +55,12 @@ protected:
 	void add_new_block(byte* dat, const size_t blockSz);
 	void set_stream_data(byte *dat, size_t sz);
 	bool block_adv(bool pos_adv = false);
-	void pos_adv();
-	void pos_adv(const size_t sz);
+	virtual void pos_adv();
+	virtual void pos_adv(const size_t sz);
 	void block_end();
 	void set_cur_block(mem_block *block);
-	void len_inc();
-	void len_inc(const size_t sz);
+	virtual void len_inc();
+	virtual void len_inc(const size_t sz);
 	mem_block *get_t_block(size_t pos);
 	u32 mod_block_sz(const u64 val);
 public:
