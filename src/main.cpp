@@ -77,10 +77,7 @@ i32 main() {
 
     //stream testing
     ByteStream tStream = ByteStream(1329);
-
-    tStream.__printDebugInfo();
-
-    std::cout << "_Size: " << tStream.size() << std::endl;
+    std::cout << "Ini Size: " << tStream.size() << std::endl;
 
     //write
     m.start();
@@ -96,13 +93,9 @@ i32 main() {
     std::cout << "Write Speed: " << (((100000*23)*(1000 / exe_time))/1e6) << "mb/s " << std::endl;
     std::cout << "Write Time: " << exe_time << "ms " << std::endl;
 
-    tStream.__printDebugInfo();
-
     //pack
     std::cout << "packing stream..." << std::endl;
     //tStream.pack();
-
-    tStream.__printDebugInfo();
 
     //dump contents to disk
     byte *stream_dat = tStream.getBytePtr();
@@ -145,7 +138,7 @@ i32 main() {
     std::cout << "Read Time: " << exe_time2 << "ms " << std::endl;
 
     //write to file
-
+    std::cout << "BitStream Testing..." << std::endl;
 
     return 0;
 }
