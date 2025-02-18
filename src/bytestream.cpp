@@ -4,12 +4,14 @@
 
 constexpr size_t ALIGN_COMPUTE_THRESH = 0xff;
 
-constexpr ByteStream_Mode __getOSEndian() {
-	union _endian_test {
+constexpr static ByteStream_Mode __getOSEndian() {
+	/*union _endian_test {
 		u64 a = 1;
 		byte b;
-	};
-	return (_endian_test()).b ? ByteStream_LittleEndian : ByteStream_BigEndian;
+	};*/
+	const int v = 1;
+	//return (_endian_test()).b ? ByteStream_LittleEndian : ByteStream_BigEndian;
+	return ((*((char*) & v)) == 1) ? ByteStream_LittleEndian : ByteStream_BigEndian;
 }
 
 void free_block(mem_block* block) {
@@ -255,20 +257,18 @@ void ByteStream::setMode(ByteStream_Mode mode) {
 
 void ByteStream::writeInt(i64 val, size_t nBytes) {
 	//numeric clease :3
-	if (nBytes <= 0) return;
-	if (nBytes > 8) nBytes = 8;
-	if (this->int_mode != __getOSEndian()) endian_swap(val, nBytes);
+	//if (nBytes <= 0) return;
+	//if (nBytes > 8) nBytes = 8;
+	//if (this->int_mode != __getOSEndian()) val = endian_swap(val, nBytes);
 	this->len_inc(nBytes);
 	this->pos += nBytes;
 
 	//block overflow stuff
 	if ((this->blockPos += nBytes) > this->cur_block->sz) {
 		size_t overflow = (this->blockPos - this->cur_block->sz);
-		//std::cout << "Overflow: " << overflow << " nb: " << nBytes << " " << val << " " << this->blockPos << " " << this->cur_block->sz << std::endl;
 		nBytes -= overflow;
 		in_minicpy256(this->cur, &val, nBytes);
 		val >>= ((nBytes) << 3);
-		//std::cout << "Extra: " << val << " " << overflow << std::endl;
 		this->block_adv();
 		this->blockPos = (nBytes = overflow);
 	}
@@ -282,7 +282,7 @@ void ByteStream::writeUInt(u64 val, size_t nBytes) {
 	//numeric clease :3
 	if (nBytes <= 0) return;
 	if (nBytes > 8) nBytes = 8;
-	if (this->int_mode != __getOSEndian()) endian_swap(val, nBytes);
+	if (this->int_mode != __getOSEndian()) val = endian_swap(val, nBytes);
 	this->len_inc(nBytes);
 	this->pos += nBytes;
 
@@ -432,14 +432,18 @@ i64 ByteStream::readInt(size_t nBytes) {
 	if (nBytes <= 0) return 0;
 	if (nBytes > 8) nBytes = 8;
 
-    if (this->int_mode == ByteStream_LittleEndian)
+	if (this->int_mode == ByteStream_BigEndian)
 		while (nBytes--) {
 			res <<= 8;
 			res |= this->readByte();
 		}
-	else
-		while (nBytes--)
-			res |= this->readByte() << (nBytes << 3);
+	else {
+		size_t off = 0;
+		while (nBytes--) {
+			res |= this->readByte() << off;
+			off += 8;
+		}
+	}
 
 	return res;
 }
@@ -451,14 +455,18 @@ u64 ByteStream::readUInt(size_t nBytes) {
     if (nBytes <= 0) return 0;
 	if (nBytes > 8) nBytes = 8;
 
-    if (this->int_mode == ByteStream_LittleEndian)
+    if (this->int_mode == ByteStream_BigEndian)
 		while (nBytes--) {
 			res <<= 8;
 			res |= this->readByte();
 		}
-	else
-		while (nBytes--)
-			res |= this->readByte() << (nBytes << 3);
+	else {
+		size_t off = 0;
+		while (nBytes--) {
+			res |= this->readByte() << off;
+			off += 8;
+		}
+	}
 
 	//if ((this->blockPos += nBytes) > this->cur_block->sz) {
 
@@ -482,7 +490,7 @@ u16 ByteStream::readUInt16() {
 		this->skip(sizeof(u16));
 		return v;
 	} else*/
-    	return this->readInt(sizeof(u16));
+    	return this->readUInt(sizeof(u16));
 }
 
 i24 ByteStream::readInt24() {
@@ -508,7 +516,7 @@ u32 ByteStream::readUInt32() {
 		this->skip(sizeof(u32));
 		return v;
 	} else*/
-    	return this->readInt(sizeof(u32));
+    	return this->readUInt(sizeof(u32));
 } 
 
 i48 ByteStream::readInt48() {
@@ -537,7 +545,7 @@ u64 ByteStream::readUInt64() {
 		this->skip(sizeof(u64));
 		return v;
 	} else*/
-    	return this->readInt(sizeof(u64));
+    	return this->readUInt(sizeof(u64));
 }
 
 //util stuf
@@ -559,7 +567,7 @@ void ByteStream::pack() {
 	size_t tsz = 0;
 
 	while (c_block) {
-		if (tsz += c_block->sz > this->len) {
+		if ((tsz += c_block->sz) > this->len) {
 			in_memcpy(dc, c_block->dat, this->len-(tsz - c_block->sz));
 			break;
 		}
