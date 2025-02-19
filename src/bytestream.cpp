@@ -4,16 +4,6 @@
 
 constexpr size_t ALIGN_COMPUTE_THRESH = 0xff;
 
-constexpr static ByteStream_Mode __getOSEndian() {
-	/*union _endian_test {
-		u64 a = 1;
-		byte b;
-	};*/
-	const int v = 1;
-	//return (_endian_test()).b ? ByteStream_LittleEndian : ByteStream_BigEndian;
-	return ((*((char*) & v)) == 1) ? ByteStream_LittleEndian : ByteStream_BigEndian;
-}
-
 void free_block(mem_block* block) {
 	if (!block) return;
 
