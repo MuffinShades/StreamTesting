@@ -301,3 +301,55 @@ static u64 endian_swap(u64 val, size_t nBytes) {
             return val;
     }
 }
+
+
+static u64 endian_swap(u64 val, size_t nBytes) {
+    switch (nBytes) {
+    case 2:
+        return ((val & 0xff00) >> 8) | ((val & 0xff) << 8);
+    case 3:
+        return ((val & 0xff0000) >> 16) | ((val & 0xff) << 16);
+    case 4:
+        return ((val & 0x000000ff) << 24) |
+            ((val & 0x0000ff00) << 8) |
+            ((val & 0x00ff0000) >> 8) |
+            ((val & 0xff000000) >> 24);
+    case 5:
+        return ((val & 0x00000000ffULL) << 32) |
+            ((val & 0x000000ff00ULL) << 16) |
+            ((val & 0x00ff000000ULL) >> 16) |
+            ((val & 0xff00000000ULL) >> 32);
+    case 6:
+        return ((val & 0x0000000000ffULL) << 40) |
+            ((val & 0x00000000ff00ULL) << 24) |
+            ((val & 0x000000ff0000ULL) << 8) |
+            ((val & 0x0000ff000000ULL) >> 8) |
+            ((val & 0x00ff00000000ULL) >> 24) |
+            ((val & 0xff0000000000ULL) >> 40);
+    case 7:
+        return ((val & 0x000000000000ffULL) << 48) |
+            ((val & 0x0000000000ff00ULL) << 32) |
+            ((val & 0x00000000ff0000ULL) << 16) |
+            ((val & 0x0000ff00000000ULL) >> 16) |
+            ((val & 0x00ff0000000000ULL) >> 32) |
+            ((val & 0xff000000000000ULL) >> 48);
+    case 8:
+        return
+            ((val & 0x00000000000000ffULL) << 56) | ((val & 0xff00000000000000ULL) >> 56) |
+            ((val & 0x000000000000ff00ULL) << 40) | ((val & 0x00ff000000000000ULL) >> 40) |
+            ((val & 0x0000000000ff0000ULL) << 24) | ((val & 0x0000ff0000000000ULL) >> 24) |
+            ((val & 0x00000000ff000000ULL) << 8) | ((val & 0x000000ff00000000ULL) >> 8);
+    default:
+        return val;
+    }
+}
+
+constexpr static ByteStream_Mode __getOSEndian() {
+    /*union _endian_test {
+        u64 a = 1;
+        byte b;
+    };*/
+    const int v = 1;
+    //return (_endian_test()).b ? ByteStream_LittleEndian : ByteStream_BigEndian;
+    return ((*((char*)&v)) == 1) ? ByteStream_LittleEndian : ByteStream_BigEndian;
+}
