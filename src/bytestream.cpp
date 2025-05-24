@@ -1,15 +1,43 @@
 #include "bytestream.hpp"
 #include "msutil.hpp"
 #include "memcpy.hpp"
+#include <cassert>
+
+/*
+
+Fully Tested functions:
+
+WriteByte
+ReadByte
+WriteInt
+WriteUInt
+All write ints / uints
+pack
+seek
+len_inc
+pos_inc
+
+*/
+
+//NOTES:
+//
+// so for writeInt I allocate 1 extra byte per chunk so it can use that overflow space
+// to perform the memcpy...
+// maybe figure out how to fix this but idk how
+//
+//
 
 constexpr size_t ALIGN_COMPUTE_THRESH = 0xff;
 
 void free_block(mem_block* block) {
 	if (!block) return;
 
+	block->next = block->prev = nullptr;
 	if (block->dat)
 		_safe_free_a(block->dat);
-	_safe_free_b(block);
+	block->dat = nullptr;
+	block->sz = 0;
+	delete block;
 }
 
 void ByteStream::free() {
@@ -19,7 +47,7 @@ void ByteStream::free() {
 		mem_block* c_block = this->head_block;
 
 		while (c_block) {
-			mem_block* next = c_block;
+			mem_block* next = c_block->next;
 			free_block(c_block);
 			c_block = next;
 		}
@@ -28,6 +56,7 @@ void ByteStream::free() {
 	//reset everything else
 	this->pos = this->allocSz = this->len = 0;
 	this->cur_block = this->head_block = this->tail_block = nullptr;
+	this->blockPos = 0;
 	this->cur = nullptr;
 }
 
@@ -37,20 +66,34 @@ void ByteStream::set_cur_block(mem_block *block) {
 	this->cur = this->cur_block->dat;
 }
 
-void ByteStream::block_append(mem_block *block) {
+void ByteStream::block_append(mem_block* block) {
 	if (!block) return;
+
+	this->allocSz += block->sz;
 
 	if (!this->head_block) {
 		this->head_block = this->tail_block = block;
+		block->pos = 0;
 		this->set_cur_block(block);
 		return;
 	}
 
 	//make blocks point to eachother and append
-	this->tail_block->next = block;
-	block->prev = this->cur_block;
-	block->pos = this->allocSz;
-	this->allocSz += block->sz;
+	if (this->tail_block) {
+		this->tail_block->next = block;
+		block->prev = this->tail_block;
+	}
+	else {
+		std::cout << "Warning: block order is messed up!!" << std::endl;
+		*((int*)(0x00000000)) = 0; //crash program :3
+	}
+
+	if (block->prev)
+		block->pos = block->prev->pos + block->prev->sz;
+	else {
+		std::cout << "Warning: block order is messed up!!" << std::endl;
+		*((int*)(0x00000000)) = 0; //crash program again :3
+	}
 	this->tail_block = block;
 }
 
@@ -59,18 +102,21 @@ mem_block* ByteStream::alloc_new_block(size_t sz) {
 	//aligned size to 0xf if needed
 	//sz = 1 << min(((fast_log16(sz)+1) << 2), MAX_BLOCK_SIZE_LOG16 << 2);
 #endif
-	if (sz <= 0) return nullptr;
+	assert(sz > 0);
 
 	mem_block* blck = new mem_block{
-		.sz = sz,
-		.dat = new byte[sz]
+		.sz = sz
 	};
 
+	blck->dat = new byte[sz + 1]; //alloc Extra byte since well for some odd reason writeInt needs it :shrug:
+
 	if (!blck->dat) {
+		blck->dat = nullptr; //safety thing
 		_safe_free_b(blck);
 		return nullptr;
 	}
 
+	blck->dat_end = blck->dat + blck->sz;
 	ZeroMem(blck->dat, blck->sz);
 
 	return blck;
@@ -100,6 +146,7 @@ void ByteStream::block_end() {
 	//while (this->cur_block->next)
 	//	this->cur_block = this->cur_block->next;
 	this->cur_block = this->tail_block;
+	this->cur = this->cur_block->dat;
 }
 
 void ByteStream::set_stream_data(byte* dat, const size_t sz) {
@@ -116,8 +163,10 @@ void ByteStream::set_stream_data(byte* dat, const size_t sz) {
 		in_memcpy(block->dat, dat, blck_sz = sz);
 
 		this->block_append(block);
-		this->allocSz += block->sz;
 	} while ((i64)(bytesLeft -= blck_sz) > 0);
+
+	this->len = sz;
+	this->blockPos = 0;
 
 	//this->len = sz; //set length to allocation size since were appending a full block of data
 	//this->pos = this->len - 1; //set pos to last byte we read
@@ -154,9 +203,8 @@ bool ByteStream::block_adv(bool pos_adv) {
 
 void ByteStream::pos_adv() {
 	if (++this->pos >= this->len) {
-		this->len++;
-		if (this->len > this->allocSz)
-			this->add_new_block(this->blockAllocSz);
+		this->pos = this->len - 1;
+		return;
 	}
 	if (++this->blockPos >= this->cur_block->sz)
 		this->block_adv();
@@ -166,38 +214,43 @@ void ByteStream::pos_adv() {
 
 void ByteStream::len_inc() {
 	this->len++;
-	if (this->len > this->allocSz)
+	if (this->len >= this->allocSz)
 		this->add_new_block(this->blockAllocSz);
 }
 
 void ByteStream::len_inc(const size_t sz) {
 	this->len += sz;
-	while (this->len > this->allocSz)
+	while (this->len > this->allocSz) {
+		std::cout << "adding blok" << std::endl;
 		this->add_new_block(this->blockAllocSz);
+	}
 }
 
 //TODO: fix position change after increasing by sz
 void ByteStream::pos_adv(const size_t sz) {
 	if ((this->pos += sz) >= this->len) {
-		this->len += sz;
-		while (this->len > this->allocSz) {
-			this->add_new_block(this->blockAllocSz);
-		}
+		this->pos = this->len - 1;
+		return;
 	}
-	else if ((this->blockPos += sz) >= this->cur_block->sz) {
-		const size_t overflow = this->blockPos - this->cur_block->sz;
+
+	//
+	size_t bytesLeft = sz;
+	while ((this->blockPos += bytesLeft) >= this->cur_block->sz) {
+		bytesLeft -= this->cur_block->sz;
 		this->block_adv();
-		this->blockPos = overflow;
-		this->cur += overflow;
-	} else
-		this->cur += sz;
+		this->blockPos = 0;
+		this->cur = this->cur_block->dat;
+	}
+
+	this->cur += bytesLeft;
 }
 
 
 //TODO: this function
 void ByteStream::writeBytes(byte *dat, size_t sz) {
-	if (!dat || sz <= 0)
-		return;
+	//if (!dat || sz <= 0)
+		//return;
+	assert(dat && sz > 0);
 	this->end();
 	this->len_inc(sz);
 	size_t blockBytesLeft;
@@ -230,42 +283,66 @@ void ByteStream::writeBytes(byte *dat, size_t sz) {
 	}
 }
 
+//possible fix: if this function doesn't write to end of block then well whoops :3
 void ByteStream::writeByte(byte b) {
 	if (!this->cur) return;
 
 	//increase length then block since len allocates and block just advances the current block
 	this->pos = this->len;
 	this->len_inc();
-	if (++this->blockPos >= this->cur_block->sz)
-		this->block_adv();
-	*this->cur++ = b;
+
+	while (++this->blockPos > this->cur_block->sz)
+		if (!this->block_adv()) {
+			this->add_new_block(this->blockAllocSz);
+			this->block_adv();
+		}
+
+	//std::cout << "Write: " << (this->cur - this->cur_block->dat) << std::endl;
+	if (this->cur && this->cur < this->cur_block->dat_end)
+		*this->cur++ = b;
+	else {
+		if (this->cur >= this->cur_block->dat_end)
+			std::cout << "Byte Write error, out of bounds! " << this->blockPos << " " << this->cur_block->sz << std::endl;
+	}
 }
 
-void ByteStream::setMode(ByteStream_Mode mode) {
-	this->int_mode = mode;
+void ByteStream::setMode(IntFormat mode) {
+	this->int_mode = (IntFormat)(mode & 1);
 }
 
 void ByteStream::writeInt(i64 val, size_t nBytes) {
 	//numeric clease :3
-	//if (nBytes <= 0) return;
-	//if (nBytes > 8) nBytes = 8;
-	//if (this->int_mode != __getOSEndian()) val = endian_swap(val, nBytes);
+	if (nBytes <= 0) return;
+	if (nBytes > 8) nBytes = 8;
+	if (this->int_mode != __getOSEndian()) val = endian_swap(val, nBytes);
 	this->len_inc(nBytes);
-	this->pos += nBytes;
 
 	//block overflow stuff
-	if ((this->blockPos += nBytes) > this->cur_block->sz) {
-		size_t overflow = (this->blockPos - this->cur_block->sz);
-		nBytes -= overflow;
-		in_minicpy256(this->cur, &val, nBytes);
-		val >>= ((nBytes) << 3);
-		this->block_adv();
-		this->blockPos = (nBytes = overflow);
+	if ((this->blockPos += nBytes) >= this->cur_block->sz) {
+		const size_t left = this->cur_block->sz - (this->blockPos - nBytes);
+		in_minicpy256(this->cur, &val, left);
+
+		//block adv
+		if (!this->block_adv()) {
+			if (!this->cur_block)
+				return;
+			else {
+				this->add_new_block(this->blockAllocSz);
+				this->block_adv();
+			}
+		}
+
+		//adjust int yk
+		val >>= (left << 3);
+		this->blockPos = (nBytes -= left);
+		this->blockPos = nBytes;
 	}
 
-	//e
+	//right hand copy / base copy
 	in_minicpy256(this->cur, &val, nBytes);
+
 	this->cur += nBytes;
+	this->pos += nBytes;
 }
 
 void ByteStream::writeUInt(u64 val, size_t nBytes) {
@@ -274,32 +351,33 @@ void ByteStream::writeUInt(u64 val, size_t nBytes) {
 	if (nBytes > 8) nBytes = 8;
 	if (this->int_mode != __getOSEndian()) val = endian_swap(val, nBytes);
 	this->len_inc(nBytes);
-	this->pos += nBytes;
 
 	//block overflow stuff
-	if ((this->blockPos += nBytes) > this->cur_block->sz) {
-		size_t overflow = (this->blockPos - this->cur_block->sz);
-		//std::cout << "Overflow: " << overflow << " nb: " << nBytes << " " << val << " " << this->blockPos << " " << this->cur_block->sz << std::endl;
-		nBytes -= overflow;
-		in_minicpy256(this->cur, &val, nBytes);
-		val >>= ((nBytes) << 3);
-		//std::cout << "Extra: " << val << " " << overflow << std::endl;
-		this->block_adv();
-		this->blockPos = (nBytes = overflow);
+	if ((this->blockPos += nBytes) >= this->cur_block->sz) {
+		const size_t left = this->cur_block->sz - (this->blockPos - nBytes);
+		in_minicpy256(this->cur, &val, left);
+
+		//block adv
+		if (!this->block_adv()) {
+			if (!this->cur_block)
+				return;
+			else {
+				this->add_new_block(this->blockAllocSz);
+				this->block_adv();
+			}
+		}
+
+		//adjust int yk
+		val >>= (left << 3);
+		this->blockPos = (nBytes -= left);
+		this->blockPos = nBytes;
 	}
 
-	//e
+	//right hand copy / base copy
 	in_minicpy256(this->cur, &val, nBytes);
-	this->cur += nBytes;
 
-	/*if (this->int_mode == ByteStream_LittleEndian)
-		while (nBytes--) {
-			this->writeByte(val & 0xff);
-			val >>= 8;
-		}
-	else
-		while (nBytes--)
-			this->writeByte((val >> (nBytes << 3)) & 0xff);*/
+	this->cur += nBytes;
+	this->pos += nBytes;
 }
 
 //int writes
@@ -422,7 +500,7 @@ i64 ByteStream::readInt(size_t nBytes) {
 	if (nBytes <= 0) return 0;
 	if (nBytes > 8) nBytes = 8;
 
-	if (this->int_mode == ByteStream_BigEndian)
+	if (this->int_mode == IntFormat_BigEndian)
 		while (nBytes--) {
 			res <<= 8;
 			res |= this->readByte();
@@ -438,14 +516,12 @@ i64 ByteStream::readInt(size_t nBytes) {
 	return res;
 }
 
-
-
 u64 ByteStream::readUInt(size_t nBytes) {
 	u64 res = 0;
     if (nBytes <= 0) return 0;
 	if (nBytes > 8) nBytes = 8;
 
-    if (this->int_mode == ByteStream_BigEndian)
+    if (this->int_mode == IntFormat_BigEndian)
 		while (nBytes--) {
 			res <<= 8;
 			res |= this->readByte();
@@ -552,20 +628,41 @@ void ByteStream::pack() {
 
 	mem_block *c_block = this->head_block;
 
-	byte *dc = dat;
-
+	byte *dc = dat, *end = dat + this->len;
 	size_t tsz = 0;
 
+	mem_block* l_block = nullptr;
+
+	//*(this->cur_block->dat + this->cur_block->sz) = 1; //see if this causes issue
+
 	while (c_block) {
-		if ((tsz += c_block->sz) > this->len) {
-			in_memcpy(dc, c_block->dat, this->len-(tsz - c_block->sz));
+		if ((tsz + c_block->sz) > this->len) {
+			l_block = c_block;
+			memcpy(dc, c_block->dat, this->len - tsz);
 			break;
 		}
-		in_memcpy(dc, c_block->dat, c_block->sz);
+
+		memcpy(dc, c_block->dat, c_block->sz);
 		dc += c_block->sz;
+		tsz += c_block->sz;
+
 		mem_block* p_block = c_block;
 		c_block = c_block->next;
 		free_block(p_block);
+	
+		if (dc > end) {
+			l_block = c_block;
+			break;
+		}
+	}
+
+	//
+	if (l_block) {
+		while (l_block) {
+			mem_block* f = l_block->next;
+			free_block(l_block);
+			l_block = f;
+		}
 	}
 
 	mem_block* h_block = new mem_block{
@@ -576,6 +673,7 @@ void ByteStream::pack() {
 	//adjust a bunch of stuff
 	h_block->pos = 0;
 	this->allocSz = this->len;
+	this->blockPos = this->pos;
 	if (this->pos >= this->len)
 		this->pos = this->blockPos = this->len - 1;
 	this->cur = h_block->dat;
@@ -605,7 +703,7 @@ mem_block *ByteStream::get_t_block(size_t pos) {
 }
 
 size_t ByteStream::seek(size_t pos) {
-	size_t pSave = this->pos;
+	const size_t pSave = this->pos;
 	if (pos >= this->len && this->len > 0)
 		return this->seek(this->len - 1);
 	this->pos = pos;
@@ -622,8 +720,12 @@ size_t ByteStream::seek(size_t pos) {
 	this->cur_block = t;
 	this->cur = this->cur_block->dat;
 
+	std::cout << "Block Move: " << this->pos << " | " << this->cur_block->pos << std::endl;
+
 	//block pos calculations
 	this->blockPos = this->pos - this->cur_block->pos;
+
+	std::cout << "Bp: " << this->blockPos << std::endl;
 }
 
 size_t ByteStream::size() {

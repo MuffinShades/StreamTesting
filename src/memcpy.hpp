@@ -1,7 +1,7 @@
 #pragma once
 #include <iostream>
 
-#define APPLE_SILICON
+//#define APPLE_SILICON
 
 #ifndef INLINE
 #ifdef __GNUC__

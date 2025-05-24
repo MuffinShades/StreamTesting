@@ -189,6 +189,10 @@ static u64 NumReverse(u64 v, size_t bSz) {
 #define min(a, b) ((a) < (b)) ? (a) : (b)
 #endif
 
+#ifndef clamp
+#define clamp(a, max, min) ((a) > (max) ? (max) : ((a) < (min) : (min) : (a)));
+#endif
+
 /**
  *
  * Void buffer macros to make void buffers
@@ -326,12 +330,18 @@ static u64 endian_swap(u64 val, size_t nBytes) {
     }
 }
 
-constexpr static ByteStream_Mode __getOSEndian() {
+enum IntFormat {
+    IntFormat_BigEndian = 0,
+    IntFormat_LittleEndian = 1
+};
+
+constexpr static IntFormat __getOSEndian() {
     /*union _endian_test {
         u64 a = 1;
         byte b;
     };*/
     const int v = 1;
     //return (_endian_test()).b ? ByteStream_LittleEndian : ByteStream_BigEndian;
-    return ((*((char*)&v)) == 1) ? ByteStream_LittleEndian : ByteStream_BigEndian;
+    return ((*((char*)&v)) == 1) ? IntFormat_LittleEndian : IntFormat_BigEndian;
 }
+

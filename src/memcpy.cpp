@@ -10,7 +10,7 @@
 #include "types.hpp"
 
 #if (defined(_WIN32) || defined(WIN32))
-#include <mmsystem.h>
+//#include <mmsystem.h>
 #elif defined(__unix)
 #include <unistd.h>
 #endif
@@ -334,7 +334,7 @@ void* in_minicpy256(void* dest, const void* src, size_t len) {
 	switch (len) {
 	case 128: avx_copy_128u(dc - 128, sc - 128); break;
 	case 129: avx_copy_128u(dc - 129, sc - 129);
-	case 1:   *dc = *sc; break;
+	case 1:   *(dc - 1) = *(sc - 1); break;
 	__mini_lin0_128(130,2)
 	__mini_line_128(131,2,1,1)
 	__mini_lin0_128(132,4)
@@ -470,13 +470,13 @@ void* in_minicpy256(void* dest, const void* src, size_t len) {
 #ifdef COPY_512
 void* in_minicpy512(void* dest, const void* src, size_t len) {
 	if (!dest || !src || len == 0) return nullptr;
-	char* dc = (char*) dest;
-	const char* sc = (const char*) src;
+	char* dc = (char*) dest + len;
+	const char* sc = (const char*) src + len;
 
 	switch (len) {
 	case 256: avx_copy_256u(dc - 256, sc - 256); break;
 	case 257: avx_copy_256u(dc - 257, sc - 257);
-	case 1: *dc = *sc; break;
+	case 1: *(dc - 1) = *(sc - 1); break;
 	__mini_lin0_256(258,2)
 	__mini_line_256(259,2,1,1)
 	__mini_lin0_256(260,4)
@@ -798,24 +798,23 @@ void* in_memcpy(void* dest, const void* src, size_t len) {
 	in_minicpy256(dest, src, toAlign);
 	char *dst_c = (char*) dest + toAlign;
 	const char* src_c = (const char*) src + toAlign;
-	size_t lCopy = len-toAlign;
+	size_t lCopy = len - toAlign;
 
 	//bulk copy (32 bytes)
-	if (((uintptr_t)src) & 255 > 0)
-		while (lCopy > 32) {
-			load_256(dst_c, 0);
-			storeu_256(src_c, 0);
-			dst_c += 32;
-			src_c += 32;
-			lCopy -= 32;
+	if ((((uintptr_t)src) & 0xff) > 0)
+		while (lCopy > 256) {
+			avx_copy_256u(dst_c, src_c);
+			dst_c += 256;
+			src_c += 256;
+			lCopy -= 256;
 		}
 	else
 		while (lCopy > 32) {
 			avx_copy_256(dst_c, src_c);
 			//std::cout << "ACOPY: " << lCopy << std::endl;
-			dst_c += 32;
-			src_c += 32;
-			lCopy -= 32;
+			dst_c += 256;
+			src_c += 256;
+			lCopy -= 256;
 		}
 
 	//trailing bytes
